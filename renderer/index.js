@@ -6,3 +6,10 @@ const func = async () => {
 }
 
 func()
+
+const syncButton = document.getElementById('syncTabs');
+const openButton = document.getElementById('openTabs');
+const viewButton = document.getElementById('viewTabs');
+const statusDiv = document.getElementById('status');
+const serverUrlInput = document.getElementById('serverUrl');
+const saveSettingsButton = document.getElementById('saveSettings');
