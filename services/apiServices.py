@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 from dateutil import parser
-from nba_api.live.nba.endpoints import scoreboard, boxscore
+from nba_api.live.nba.endpoints import scoreboard, boxscore, playbyplay
+from nba_api.stats.static import players
+import re
 
 # Data I need to get.
 # These I only need to grab once
@@ -60,8 +62,11 @@ def get_live_game_updates(game_id):
     # Get the clock and period
     period = game_data['period']
     rawClock = game_data['gameClock'] # Returns something like PT00M19.50S
-    clock = rawClock[-5:] # Get the last 5 characters of the clock string
-    
+    matchTime = re.search(r'PT(\d+)M(\d+\.\d+)S', rawClock) # Outputs something like PT08M47.00S. We want 8:47
+    minutes = matchTime.group(1)
+    seconds = matchTime.group(2).split('.')[0]  # Remove decimal part
+    clock = f"{minutes}:{seconds}"       # In the form 00:00
+
     # Format the clock to basketball format
     period_display = f"Q{period}" if period <= 4 else f"OT{period-4}"
     clock_display = f"{period_display} {clock}"
@@ -75,6 +80,7 @@ def get_live_game_updates(game_id):
     home_players = game_data['homeTeam']['players']
     away_players = game_data['awayTeam']['players']
 
+    # Add home players to list (name, minutes played, points, rebounds, assists)
     home_player_stats = []
     for player in home_players:
         name = player['name']
@@ -86,6 +92,7 @@ def get_live_game_updates(game_id):
         player_assists = player['statistics']['assists']
         home_player_stats.append(f"{player_name}: {player_minutes_played} MIN, {player_points} PTS, {player_rebounds} REB, {player_assists} AST")
         
+    # Add away players to list (name, minutes played, points, rebounds, assists)
     away_player_stats = []
     for player in away_players:
         name = player['name']
@@ -97,10 +104,48 @@ def get_live_game_updates(game_id):
         player_assists = player['statistics']['assists']
         away_player_stats.append(f"{player_name}: {player_minutes_played} MIN, {player_points} PTS, {player_rebounds} REB, {player_assists} AST")
     
+    # Find the best player on each team based on points, rebounds, and assists
+    # The formula for the best player is: points + 2 * rebounds + 3 * assists
+    # TODO: Reserach if this is the best formula for determining the best player
     best_home_player = max(home_players, key=lambda x: x['statistics']['points'] + 2 * x['statistics']['reboundsTotal'] + 3* x['statistics']['assists'])
     best_away_player = max(away_players, key=lambda x: x['statistics']['points'] + 2 * x['statistics']['reboundsTotal'] + 3* x['statistics']['assists'])
     best_home_player_display = f"{best_home_player['name']}: {best_home_player['statistics']['points']} PTS, {best_home_player['statistics']['reboundsTotal']} REB, {best_home_player['statistics']['assists']} AST"
     best_away_player_display = f"{best_away_player['name']}: {best_away_player['statistics']['points']} PTS, {best_away_player['statistics']['reboundsTotal']} REB, {best_away_player['statistics']['assists']} AST"
+
+    # Get play-by-play updates
+    recent_plays = []
+    line = "{play_number}: Q{period} {clock} {player_id} ({action_type})" #Displayed in this form
+
+    pbp = playbyplay.PlayByPlay(game_id)
+    plays = pbp.get_dict()['game']['actions'] #plays are referred to in the live data as `actions`
+
+    if plays:
+        # Sort plays by action number for most recent
+        sorted_plays = sorted(plays, key=lambda x: x.get('actionNumber', 0), reverse=True)
+
+        for play in sorted_plays[:5]:
+
+            # Find time that the play happened
+            matchTime = re.search(r'PT(\d+)M(\d+\.\d+)S', play['clock']) # Outputs something like PT08M47.00S. We want 8:47
+            if matchTime:
+                minutes = matchTime.group(1)
+                seconds = matchTime.group(2).split('.')[0]  # Remove decimal part
+                time_str = f"{minutes}:{seconds}"       # In the form 00:00
+            
+            # Find the period the play happened in
+            play_period = play.get('period', 0)
+            period_str = f"Q{play_period}" if play_period <= 4 else f"OT{play_period-4}"
+            
+            # Find teh description of the play
+            play_description = play.get('description', 'Unknown action')
+            
+            # Format the play text
+            play_text = f"{period_str} {time_str} | {play_description}"
+            recent_plays.append(play_text)
+    
+    # Reverse plays so most recent play comes first
+
+    recent_plays.reverse()
 
     return {
         "status": game_status,
@@ -109,9 +154,9 @@ def get_live_game_updates(game_id):
         "home_players": home_player_stats,
         "away_players": away_player_stats,
         "best_home_player": best_home_player_display,
-        "best_away_player": best_away_player_display
+        "best_away_player": best_away_player_display,
+        "recent_plays": recent_plays
     }
 
-print(get_live_game_updates('0022401073')) # Example gameId: 0022401073
-
+print(get_live_game_updates('0022401067')) # Example gameId: 0022401073
 
