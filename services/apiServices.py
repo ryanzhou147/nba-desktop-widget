@@ -6,18 +6,6 @@ import re
 from dataclasses import dataclass
 from typing import List, Dict
 
-# Data I need to get.
-# These I only need to grab once
-# 1. Teams playing                      x vs y
-# 2. Game time in local timezone        4:00 PM EST
-# 3. Game id                            0022401073
-
-# These I need to update every 2 seconds
-# 3. Shot clock time remaining          Q1 12:00
-# 4. Game score                         X - Y 
-# 5. Box score for each player          M: 20 PTS, 5 REB, 3 AST
-# 6. Game status                        In Progress, Final, etc.
-
 @dataclass
 class Game:
     game_id: str
