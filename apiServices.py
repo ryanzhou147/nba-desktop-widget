@@ -129,5 +129,5 @@ def fetch_live_game_updates(game_id: str) -> GameUpdate:
 
     return GameUpdate(game_status, period, clock, home_score, away_score, home_player_stats, away_player_stats, best_home_player, best_away_player, best_overall_player, recent_plays)
 
-print(fetch_games_list())
-print(fetch_live_game_updates('0022401073'))
+# print(fetch_games_list())
+# print(fetch_live_game_updates('0022401073'))
