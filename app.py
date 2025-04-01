@@ -9,148 +9,10 @@ from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QEvent
 import time
 from apiServices import fetch_games_list, fetch_live_game_updates, Game, GameUpdate
 
-class DarkModeToggle(QPushButton):
-    theme_changed = pyqtSignal(bool)  # Create a signal to emit when theme changes
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setCheckable(True)
-        self.setText("Dark Mode")
-        self.clicked.connect(self.toggle_mode)
-        self.dark_mode = False
-        self.setFixedSize(100, 30)
-        
-    def toggle_mode(self):
-        self.dark_mode = not self.dark_mode
-        self.setText("Light Mode" if self.dark_mode else "Dark Mode")
-        self.theme_changed.emit(self.dark_mode)
 
-class GameCell(QWidget):
-    clicked_signal = pyqtSignal(str)
-    
-    def __init__(self, game: Game, parent=None):
-        super().__init__(parent)
-        self.game = game
-        self.game_id = game.game_id
-        self.is_dark_mode = False
-        self.init_ui()
-        
-    def init_ui(self):
-        self.setMinimumHeight(120)
-        self.setMaximumHeight(120)
-        
-        # Create frame for better visual separation
-        self.frame = QFrame(self)
-        self.frame.setFrameShape(QFrame.StyledPanel)
-        self.frame.setFrameShadow(QFrame.Raised)
-        
-        # Main layout
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(5, 5, 5, 5)
-        main_layout.addWidget(self.frame)
-        
-        # Frame layout
-        layout = QHBoxLayout(self.frame)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Left side (team logos and scores)
-        left_layout = QVBoxLayout()
-        
-        # Home team layout
-        home_layout = QHBoxLayout()
-        self.home_logo = QLabel()
-        logo_path = f"nba-logos/{self.game.home_team}.png"
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path).scaled(40, 40, Qt.KeepAspectRatio)
-            self.home_logo.setPixmap(pixmap)
-        else:
-            self.home_logo.setText(self.game.home_team)
-        self.home_logo.setFixedSize(40, 40)
-        
-        self.home_score = QLabel("--")
-        self.home_score.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        home_layout.addWidget(self.home_logo)
-        home_layout.addWidget(self.home_score)
-        
-        # Away team layout
-        away_layout = QHBoxLayout()
-        self.away_logo = QLabel()
-        logo_path = f"nba-logos/{self.game.away_team}.png"
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path).scaled(40, 40, Qt.KeepAspectRatio)
-            self.away_logo.setPixmap(pixmap)
-        else:
-            self.away_logo.setText(self.game.away_team)
-        self.away_logo.setFixedSize(40, 40)
-        
-        self.away_score = QLabel("--")
-        self.away_score.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        away_layout.addWidget(self.away_logo)
-        away_layout.addWidget(self.away_score)
-        
-        left_layout.addLayout(home_layout)
-        left_layout.addLayout(away_layout)
-        
-        # Right side (game status)
-        right_layout = QVBoxLayout()
-        self.status_label = QLabel(self.game.game_time)
-        self.status_label.setAlignment(Qt.AlignCenter)
-        
-        self.player_stats = QLabel("")
-        self.player_stats.setAlignment(Qt.AlignCenter)
-        self.player_stats.setWordWrap(True)
-        
-        right_layout.addWidget(self.status_label)
-        right_layout.addWidget(self.player_stats)
-        
-        # Add layouts to main layout
-        layout.addLayout(left_layout, 1)
-        layout.addLayout(right_layout, 1)
-        
-        self.setFixedHeight(120)
-        self.setStyleSheet("GameCell { border-radius: 10px; }")
-        
-        self.dark_mode_toggle = DarkModeToggle(self)
-        self.dark_mode_toggle.theme_changed.connect(self.apply_theme)
-        
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked_signal.emit(self.game_id)
-        super().mousePressEvent(event)
-    
-    def update_game_status(self, game_update: GameUpdate = None):
-        if game_update:
-            self.home_score.setText(str(game_update.home_score))
-            self.away_score.setText(str(game_update.away_score))
-            
-            if "Final" in game_update.status:
-                self.status_label.setText(f"{game_update.status}")
-            elif "PM" in game_update.status or "AM" in game_update.status:
-                self.status_label.setText(f"{self.game.game_time}")
-            else:
-                self.status_label.setText(f"Q{game_update.period} - {game_update.clock}")
-                self.player_stats.setText(f"Best: {game_update.best_overall_player}")
-        else:
-            self.status_label.setText(self.game.game_time)
-            
-    def apply_theme(self, is_dark_mode):
-        self.is_dark_mode = is_dark_mode
-        if is_dark_mode:
-            self.frame.setStyleSheet("QFrame { background-color: #2D2D2D; border-radius: 10px; }")
-            self.home_score.setStyleSheet("QLabel { color: #FFFFFF; font-weight: bold; font-size: 16px; }")
-            self.away_score.setStyleSheet("QLabel { color: #FFFFFF; font-weight: bold; font-size: 16px; }")
-            self.status_label.setStyleSheet("QLabel { color: #FFFFFF; }")
-            self.player_stats.setStyleSheet("QLabel { color: #AAAAAA; font-size: 10px; }")
-        else:
-            self.frame.setStyleSheet("QFrame { background-color: #FFFFFF; border-radius: 10px; }")
-            self.home_score.setStyleSheet("QLabel { color: #000000; font-weight: bold; font-size: 16px; }")
-            self.away_score.setStyleSheet("QLabel { color: #000000; font-weight: bold; font-size: 16px; }")
-            self.status_label.setStyleSheet("QLabel { color: #000000; }")
-            self.player_stats.setStyleSheet("QLabel { color: #555555; font-size: 10px; }")
-
+ 
 class GameDetailView(QWidget):
     back_signal = pyqtSignal()
-    
     def __init__(self, game: Game, parent=None):
         super().__init__(parent)
         self.game = game
@@ -299,7 +161,7 @@ class GameDetailView(QWidget):
             
             # Update box score tab
             self.update_box_score(game_update.home_players, game_update.away_players)
-    
+
     def update_feed(self, recent_plays):
         # Clear existing items
         while self.feed_layout.count():
@@ -313,7 +175,7 @@ class GameDetailView(QWidget):
             play_label.setWordWrap(True)
             play_label.setStyleSheet("padding: 5px; border-bottom: 1px solid #CCCCCC;")
             self.feed_layout.addWidget(play_label)
-    
+
     def update_box_score(self, home_players, away_players):
         # Update home team box score
         self.home_box_score.setRowCount(len(home_players))
@@ -393,14 +255,14 @@ class MainWindow(QMainWindow):
         # Set up timer for auto-updates
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_games)
-        self.update_timer.start(30000)  # Update every 30 seconds
+        self.update_timer.start(2000)  # Update every 30 seconds
         
         # Initial update
         self.update_games()
         
     def init_ui(self):
         self.setWindowTitle("NBA Desktop Widget")
-        self.setMinimumSize(800, 600)
+        self.setMinimumSize(400, 00)
         
         # Create central widget and main layout
         self.central_widget = QWidget()
@@ -413,6 +275,7 @@ class MainWindow(QMainWindow):
         title_label.setStyleSheet("font-size: 24px; font-weight: bold;")
         
         self.dark_mode_toggle = DarkModeToggle(self)
+        self.dark_mode_toggle.theme_changed.connect(self.apply_theme)
         
         header_layout.addWidget(title_label)
         header_layout.addStretch()
