@@ -187,7 +187,9 @@ class GameCell(QWidget, ThemedWidget):
                         self.status_label.setText("Halftime")
                         self.player_stats.setText(f"{game_update.best_overall_player}")
                     case _:
-                        self.status_label.setText(f"Q{game_update.period} - {game_update.clock}")
+                        if game_update.period <= 4: self.status_label.setText(f"Q{game_update.period} - {game_update.clock}") 
+                        elif game_update.period == 5: self.status_label.setText(f"OT - {game_update.clock}")
+                        else: self.status_label.setText(f"{game_update.period - 4}OT - {game_update.clock}")
                         self.player_stats.setText(f"{game_update.best_overall_player}")
                     
     def _apply_specific_theme(self, theme):
