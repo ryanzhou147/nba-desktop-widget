@@ -6,13 +6,210 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHeaderView, QSizePolicy, QFrame, QStackedWidget)
 from PyQt5.QtGui import QPixmap, QColor, QPalette, QFont
 from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QEvent
-import time
 from apiServices import fetch_games_list, fetch_live_game_updates, Game, GameUpdate
 
+# Theme constants
+LIGHT_THEME = {
+    "bg_color": "#FFFFFF",
+    "main_bg": "#F5F5F5",
+    "text_color": "#000000",
+    "secondary_text": "#555555",
+    "border_color": "#CCCCCC",
+    "tab_bg": "#F0F0F0",
+    "tab_selected_bg": "#FFFFFF",
+    "tab_text": "#555555"
+}
 
- 
-class GameDetailView(QWidget):
+DARK_THEME = {
+    "bg_color": "#2D2D2D",
+    "main_bg": "#1E1E1E",
+    "text_color": "#FFFFFF",
+    "secondary_text": "#AAAAAA",
+    "border_color": "#3A3A3A",
+    "tab_bg": "#2D2D2D",
+    "tab_selected_bg": "#3A3A3A",
+    "tab_text": "#AAAAAA"
+}
+
+# DarkModeToggle
+# A specialized button widget that:
+
+# Handles theme switching between dark and light modes
+# Emits signals when the theme changes
+# Toggles its text between "Dark Mode" and "Light Mode"
+
+
+class DarkModeToggle(QPushButton):
+    theme_changed = pyqtSignal(bool)
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setCheckable(True)
+        self.setText("Dark Mode")
+        self.clicked.connect(self.toggle_mode)
+        self.dark_mode = False
+        self.setFixedSize(100, 30)
+        
+    def toggle_mode(self):
+        self.dark_mode = not self.dark_mode
+        self.setText("Light Mode" if self.dark_mode else "Dark Mode")
+        self.theme_changed.emit(self.dark_mode)
+
+# ThemedWidget
+# A mixin class (not instantiated directly) that:
+
+# Provides shared functionality for theme application
+# Defines a common interface for themed components
+# Contains methods for applying specific theme properties
+# Uses the DARK_THEME and LIGHT_THEME constants
+
+class ThemedWidget:
+    """Mixin for theming widgets"""
+    def apply_theme(self, is_dark_mode):
+        self.is_dark_mode = is_dark_mode
+        theme = DARK_THEME if is_dark_mode else LIGHT_THEME
+        self._apply_specific_theme(theme)
+    
+    def _apply_specific_theme(self, theme):
+        # To be overridden by child classes
+        pass
+
+# GameCell
+# Represents a single game card in the main view. It:
+
+# Displays basic game information (teams, logos, scores)
+# Shows game status and basic player stats
+# Handles click events to navigate to detail view
+# Updates dynamically as game data changes
+# Applies theming to all its components
+# Has a fixed height for consistent UI
+
+class GameCell(QWidget, ThemedWidget):
+    clicked_signal = pyqtSignal(str)
+    
+    def __init__(self, game: Game, parent=None):
+        super().__init__(parent)
+        self.game = game
+        self.game_id = game.game_id
+        self.is_dark_mode = False
+        self.init_ui()
+        
+    def init_ui(self):
+        self.setMinimumHeight(120)
+        self.setMaximumHeight(120)
+        
+        # Create frame for better visual separation
+        self.frame = QFrame(self)
+        self.frame.setFrameShape(QFrame.StyledPanel)
+        self.frame.setFrameShadow(QFrame.Raised)
+        
+        # Main layout
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(5, 5, 5, 5)
+        main_layout.addWidget(self.frame)
+        
+        # Frame layout
+        layout = QHBoxLayout(self.frame)
+        layout.setContentsMargins(10, 10, 10, 10)
+        
+        # Left side (team logos and scores)
+        left_layout = QVBoxLayout()
+        
+        # Team layouts
+        self.home_logo, self.home_score, home_layout = self._create_team_layout(self.game.home_team)
+        self.away_logo, self.away_score, away_layout = self._create_team_layout(self.game.away_team)
+        
+        left_layout.addLayout(home_layout)
+        left_layout.addLayout(away_layout)
+        
+        # Right side (game status)
+        right_layout = QVBoxLayout()
+        self.status_label = QLabel(self.game.game_time)
+        self.status_label.setAlignment(Qt.AlignCenter)
+        
+        self.player_stats = QLabel("")
+        self.player_stats.setAlignment(Qt.AlignCenter)
+        self.player_stats.setWordWrap(True)
+        
+        right_layout.addWidget(self.status_label)
+        right_layout.addWidget(self.player_stats)
+        
+        # Add layouts to main layout
+        layout.addLayout(left_layout, 1)
+        layout.addLayout(right_layout, 1)
+        
+        self.setFixedHeight(120)
+        self.setStyleSheet("GameCell { border-radius: 10px; }")
+
+    def _create_team_layout(self, team_name):
+        layout = QHBoxLayout()
+        
+        logo = QLabel()
+        logo_path = f"nba-logos/{team_name}.png"
+        if os.path.exists(logo_path):
+            pixmap = QPixmap(logo_path).scaled(40, 40, Qt.KeepAspectRatio)
+            logo.setPixmap(pixmap)
+        else:
+            logo.setText(team_name)
+        logo.setFixedSize(40, 40)
+        
+        score = QLabel("--")
+        score.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        
+        layout.addWidget(logo)
+        layout.addWidget(score)
+        
+        return logo, score, layout
+        
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked_signal.emit(self.game_id)
+        super().mousePressEvent(event)
+    
+    def update_game_status(self, game_update: GameUpdate = None):
+        if not game_update:
+            self.status_label.setText(self.game.game_time)
+            return
+        
+        self.home_score.setText(str(game_update.home_score))
+        self.away_score.setText(str(game_update.away_score))
+        
+        match game_update.status:
+            case status if "Final" in status:
+                self.status_label.setText(f"{game_update.status}")
+                self.player_stats.setText(f"{game_update.best_overall_player}")
+            case status if "Not Started" in status or "PM" in status or "AM" in status:
+                self.status_label.setText(f"{self.game.game_time}")
+            case _:
+                # For cases not handled above, check the period and clock
+                match (game_update.period, game_update.clock):
+                    case (2, "00:00"):
+                        self.status_label.setText("Halftime")
+                        self.player_stats.setText(f"{game_update.best_overall_player}")
+                    case _:
+                        self.status_label.setText(f"Q{game_update.period} - {game_update.clock}")
+                        self.player_stats.setText(f"{game_update.best_overall_player}")
+                    
+    def _apply_specific_theme(self, theme):
+        self.frame.setStyleSheet(f"QFrame {{ background-color: {theme['bg_color']}; border-radius: 10px; }}")
+        self.home_score.setStyleSheet(f"QLabel {{ color: {theme['text_color']}; font-weight: bold; font-size: 16px; }}")
+        self.away_score.setStyleSheet(f"QLabel {{ color: {theme['text_color']}; font-weight: bold; font-size: 16px; }}")
+        self.status_label.setStyleSheet(f"QLabel {{ color: {theme['text_color']}; }}")
+        self.player_stats.setStyleSheet(f"QLabel {{ color: {theme['secondary_text']}; font-size: 10px; }}")
+
+# GameDetailView
+# The expanded view for a single game when selected. It:
+
+# Shows detailed information about one specific game
+# Contains a tabbed interface with "Feed" and "Box Score" sections
+# Displays team logos, names, scores, and game status
+# Shows live game updates and recent plays
+# Presents player statistics in table format
+# Has a back button to return to the main view
+
+class GameDetailView(QWidget, ThemedWidget):
     back_signal = pyqtSignal()
+    
     def __init__(self, game: Game, parent=None):
         super().__init__(parent)
         self.game = game
@@ -33,24 +230,9 @@ class GameDetailView(QWidget):
         self.back_button.setFixedWidth(80)
         self.back_button.clicked.connect(self.back_signal.emit)
         
-        # Home team
-        home_layout = QHBoxLayout()
-        self.home_logo = QLabel()
-        logo_path = f"nba-logos/{self.game.home_team}.png"
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path).scaled(60, 60, Qt.KeepAspectRatio)
-            self.home_logo.setPixmap(pixmap)
-        else:
-            self.home_logo.setText(self.game.home_team)
-        self.home_logo.setFixedSize(60, 60)
-        
-        self.home_team_name = QLabel(self.game.home_team)
-        self.home_score = QLabel("--")
-        self.home_score.setStyleSheet("font-size: 24px; font-weight: bold;")
-        
-        home_layout.addWidget(self.home_logo)
-        home_layout.addWidget(self.home_team_name)
-        home_layout.addWidget(self.home_score)
+        # Team layouts
+        self.home_logo, self.home_team_name, self.home_score, home_layout = self._create_header_team_layout(self.game.home_team)
+        self.away_logo, self.away_team_name, self.away_score, away_layout = self._create_header_team_layout(self.game.away_team)
         
         # Game status
         status_layout = QVBoxLayout()
@@ -58,26 +240,6 @@ class GameDetailView(QWidget):
         self.status_label.setAlignment(Qt.AlignCenter)
         status_layout.addWidget(self.status_label)
         
-        # Away team
-        away_layout = QHBoxLayout()
-        self.away_logo = QLabel()
-        logo_path = f"nba-logos/{self.game.away_team}.png"
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path).scaled(60, 60, Qt.KeepAspectRatio)
-            self.away_logo.setPixmap(pixmap)
-        else:
-            self.away_logo.setText(self.game.away_team)
-        self.away_logo.setFixedSize(60, 60)
-        
-        self.away_team_name = QLabel(self.game.away_team)
-        self.away_score = QLabel("--")
-        self.away_score.setStyleSheet("font-size: 24px; font-weight: bold;")
-        
-        away_layout.addWidget(self.away_logo)
-        away_layout.addWidget(self.away_team_name)
-        away_layout.addWidget(self.away_score)
-        
-        header_layout.addWidget(self.back_button)
         header_layout.addLayout(home_layout)
         header_layout.addLayout(status_layout)
         header_layout.addLayout(away_layout)
@@ -88,54 +250,10 @@ class GameDetailView(QWidget):
         self.tab_widget = QTabWidget()
         
         # Feed tab
-        self.feed_tab = QWidget()
-        feed_layout = QVBoxLayout(self.feed_tab)
-        
-        self.feed_scroll = QScrollArea()
-        self.feed_scroll.setWidgetResizable(True)
-        self.feed_content = QWidget()
-        self.feed_layout = QVBoxLayout(self.feed_content)
-        self.feed_layout.setAlignment(Qt.AlignTop)
-        self.feed_scroll.setWidget(self.feed_content)
-        
-        feed_layout.addWidget(self.feed_scroll)
+        self.feed_tab = self._create_feed_tab()
         
         # Box score tab
-        self.box_score_tab = QWidget()
-        box_score_layout = QVBoxLayout(self.box_score_tab)
-        
-        # Home team box score
-        self.home_box_score_label = QLabel(f"{self.game.home_team} Players")
-        self.home_box_score_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        
-        self.home_box_score = QTableWidget()
-        self.home_box_score.setColumnCount(5)
-        self.home_box_score.setHorizontalHeaderLabels(["Player", "MIN", "PTS", "REB", "AST"])
-        self.home_box_score.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.home_box_score.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.home_box_score.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.home_box_score.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.home_box_score.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.home_box_score.verticalHeader().setVisible(False)
-        
-        # Away team box score
-        self.away_box_score_label = QLabel(f"{self.game.away_team} Players")
-        self.away_box_score_label.setStyleSheet("font-weight: bold; font-size: 14px;")
-        
-        self.away_box_score = QTableWidget()
-        self.away_box_score.setColumnCount(5)
-        self.away_box_score.setHorizontalHeaderLabels(["Player", "MIN", "PTS", "REB", "AST"])
-        self.away_box_score.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self.away_box_score.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self.away_box_score.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self.away_box_score.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.away_box_score.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.away_box_score.verticalHeader().setVisible(False)
-        
-        box_score_layout.addWidget(self.home_box_score_label)
-        box_score_layout.addWidget(self.home_box_score)
-        box_score_layout.addWidget(self.away_box_score_label)
-        box_score_layout.addWidget(self.away_box_score)
+        self.box_score_tab = self._create_box_score_tab()
         
         # Add tabs
         self.tab_widget.addTab(self.feed_tab, "Feed")
@@ -143,25 +261,96 @@ class GameDetailView(QWidget):
         
         main_layout.addWidget(self.tab_widget)
         
+    def _create_header_team_layout(self, team_name):
+        layout = QHBoxLayout()
+        
+        logo = QLabel()
+        logo_path = f"nba-logos/{team_name}.png"
+        if os.path.exists(logo_path):
+            pixmap = QPixmap(logo_path).scaled(60, 60, Qt.KeepAspectRatio)
+            logo.setPixmap(pixmap)
+        else:
+            logo.setText(team_name)
+        logo.setFixedSize(60, 60)
+        
+        name = QLabel(team_name)
+        score = QLabel("--")
+        score.setStyleSheet("font-size: 24px; font-weight: bold;")
+        
+        layout.addWidget(logo)
+        layout.addWidget(name)
+        layout.addWidget(score)
+        
+        return logo, name, score, layout
+    
+    def _create_feed_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        content = QWidget()
+        self.feed_layout = QVBoxLayout(content)
+        self.feed_layout.setAlignment(Qt.AlignTop)
+        scroll.setWidget(content)
+        
+        layout.addWidget(scroll)
+        return tab
+    
+    def _create_box_score_tab(self):
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        
+        # Home team box score
+        self.home_box_score_label = QLabel(f"{self.game.home_team} Players")
+        self.home_box_score_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        
+        self.home_box_score = self._create_box_score_table()
+        
+        # Away team box score
+        self.away_box_score_label = QLabel(f"{self.game.away_team} Players")
+        self.away_box_score_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        
+        self.away_box_score = self._create_box_score_table()
+        
+        layout.addWidget(self.home_box_score_label)
+        layout.addWidget(self.home_box_score)
+        layout.addWidget(self.away_box_score_label)
+        layout.addWidget(self.away_box_score)
+        
+        return tab
+    
+    def _create_box_score_table(self):
+        table = QTableWidget()
+        table.setColumnCount(5)
+        table.setHorizontalHeaderLabels(["Player", "MIN", "PTS", "REB", "AST"])
+        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        for i in range(1, 5):
+            table.horizontalHeader().setSectionResizeMode(i, QHeaderView.ResizeToContents)
+        table.verticalHeader().setVisible(False)
+        return table
+    
     def update_game_status(self, game_update: GameUpdate):
-        if game_update:
-            self.game_update = game_update
-            self.home_score.setText(str(game_update.home_score))
-            self.away_score.setText(str(game_update.away_score))
+        if not game_update:
+            return
             
-            if "Final" in game_update.status:
-                self.status_label.setText(f"{game_update.status}")
-            elif "PM" in game_update.status or "AM" in game_update.status:
-                self.status_label.setText(f"{self.game.game_time}")
-            else:
-                self.status_label.setText(f"Q{game_update.period} - {game_update.clock}")
-                
-            # Update feed tab
-            self.update_feed(game_update.recent_plays)
+        self.game_update = game_update
+        self.home_score.setText(str(game_update.home_score))
+        self.away_score.setText(str(game_update.away_score))
+        
+        if "Final" in game_update.status:
+            self.status_label.setText(f"{game_update.status}")
+        elif "PM" in game_update.status or "AM" in game_update.status:
+            self.status_label.setText(f"{self.game.game_time}")
+        else:
+            self.status_label.setText(f"Q{game_update.period} - {game_update.clock}")
             
-            # Update box score tab
-            self.update_box_score(game_update.home_players, game_update.away_players)
-
+        # Update feed tab
+        self.update_feed(game_update.recent_plays)
+        
+        # Update box score tab
+        self.update_box_score(game_update.home_players, game_update.away_players)
+    
     def update_feed(self, recent_plays):
         # Clear existing items
         while self.feed_layout.count():
@@ -173,76 +362,57 @@ class GameDetailView(QWidget):
         for play in recent_plays:
             play_label = QLabel(play)
             play_label.setWordWrap(True)
-            play_label.setStyleSheet("padding: 5px; border-bottom: 1px solid #CCCCCC;")
+            play_label.setStyleSheet(f"padding: 5px; border-bottom: 1px solid {DARK_THEME['border_color'] if self.is_dark_mode else LIGHT_THEME['border_color']};")
             self.feed_layout.addWidget(play_label)
-
+    
     def update_box_score(self, home_players, away_players):
-        # Update home team box score
-        self.home_box_score.setRowCount(len(home_players))
-        for i, player in enumerate(home_players):
-            self.home_box_score.setItem(i, 0, QTableWidgetItem(player.player_name))
-            self.home_box_score.setItem(i, 1, QTableWidgetItem(str(player.minutes_played)))
-            self.home_box_score.setItem(i, 2, QTableWidgetItem(str(player.points)))
-            self.home_box_score.setItem(i, 3, QTableWidgetItem(str(player.rebounds)))
-            self.home_box_score.setItem(i, 4, QTableWidgetItem(str(player.assists)))
+        def update_table(table, players):
+            table.setRowCount(len(players))
+            for i, player in enumerate(players):
+                table.setItem(i, 0, QTableWidgetItem(player.player_name))
+                table.setItem(i, 1, QTableWidgetItem(str(player.minutes_played)))
+                table.setItem(i, 2, QTableWidgetItem(str(player.points)))
+                table.setItem(i, 3, QTableWidgetItem(str(player.rebounds)))
+                table.setItem(i, 4, QTableWidgetItem(str(player.assists)))
+                
+        update_table(self.home_box_score, home_players)
+        update_table(self.away_box_score, away_players)
+            
+    def _apply_specific_theme(self, theme):
+        self.setStyleSheet(f"background-color: {theme['main_bg']}; color: {theme['text_color']};")
+        self.home_score.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {theme['text_color']};")
+        self.away_score.setStyleSheet(f"font-size: 24px; font-weight: bold; color: {theme['text_color']};")
+        self.home_team_name.setStyleSheet(f"color: {theme['text_color']};")
+        self.away_team_name.setStyleSheet(f"color: {theme['text_color']};")
+        self.status_label.setStyleSheet(f"color: {theme['text_color']};")
+        self.home_box_score_label.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {theme['text_color']};")
+        self.away_box_score_label.setStyleSheet(f"font-weight: bold; font-size: 14px; color: {theme['text_color']};")
         
-        # Update away team box score
-        self.away_box_score.setRowCount(len(away_players))
-        for i, player in enumerate(away_players):
-            self.away_box_score.setItem(i, 0, QTableWidgetItem(player.player_name))
-            self.away_box_score.setItem(i, 1, QTableWidgetItem(str(player.minutes_played)))
-            self.away_box_score.setItem(i, 2, QTableWidgetItem(str(player.points)))
-            self.away_box_score.setItem(i, 3, QTableWidgetItem(str(player.rebounds)))
-            self.away_box_score.setItem(i, 4, QTableWidgetItem(str(player.assists)))
-            
-    def apply_theme(self, is_dark_mode):
-        self.is_dark_mode = is_dark_mode
-        if is_dark_mode:
-            self.setStyleSheet("background-color: #1E1E1E; color: #FFFFFF;")
-            self.home_score.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF;")
-            self.away_score.setStyleSheet("font-size: 24px; font-weight: bold; color: #FFFFFF;")
-            self.home_team_name.setStyleSheet("color: #FFFFFF;")
-            self.away_team_name.setStyleSheet("color: #FFFFFF;")
-            self.status_label.setStyleSheet("color: #FFFFFF;")
-            self.home_box_score_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #FFFFFF;")
-            self.away_box_score_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #FFFFFF;")
-            self.tab_widget.setStyleSheet("""
-                QTabWidget::pane { border: 1px solid #3A3A3A; }
-                QTabBar::tab { background-color: #2D2D2D; color: #AAAAAA; padding: 8px 12px; }
-                QTabBar::tab:selected { background-color: #3A3A3A; color: #FFFFFF; }
-            """)
-            self.home_box_score.setStyleSheet("QTableWidget { background-color: #2D2D2D; color: #FFFFFF; }")
-            self.away_box_score.setStyleSheet("QTableWidget { background-color: #2D2D2D; color: #FFFFFF; }")
-            self.back_button.setStyleSheet("QPushButton { background-color: #333333; color: #FFFFFF; }")
-            
-            # Update feed labels
-            for i in range(self.feed_layout.count()):
-                widget = self.feed_layout.itemAt(i).widget()
-                if isinstance(widget, QLabel):
-                    widget.setStyleSheet("padding: 5px; border-bottom: 1px solid #3A3A3A; color: #FFFFFF;")
-        else:
-            self.setStyleSheet("background-color: #FFFFFF; color: #000000;")
-            self.home_score.setStyleSheet("font-size: 24px; font-weight: bold; color: #000000;")
-            self.away_score.setStyleSheet("font-size: 24px; font-weight: bold; color: #000000;")
-            self.home_team_name.setStyleSheet("color: #000000;")
-            self.away_team_name.setStyleSheet("color: #000000;")
-            self.status_label.setStyleSheet("color: #000000;")
-            self.home_box_score_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #000000;")
-            self.away_box_score_label.setStyleSheet("font-weight: bold; font-size: 14px; color: #000000;")
-            self.tab_widget.setStyleSheet("""
-                QTabWidget::pane { border: 1px solid #CCCCCC; }
-                QTabBar::tab { background-color: #F0F0F0; color: #555555; padding: 8px 12px; }
-                QTabBar::tab:selected { background-color: #FFFFFF; color: #000000; }
-            """)
-            self.home_box_score.setStyleSheet("QTableWidget { background-color: #FFFFFF; color: #000000; }")
-            self.away_box_score.setStyleSheet("QTableWidget { background-color: #FFFFFF; color: #000000; }")
-            self.back_button.setStyleSheet("QPushButton { background-color: #F0F0F0; color: #000000; }")
-            
-            # Update feed labels
-            for i in range(self.feed_layout.count()):
-                widget = self.feed_layout.itemAt(i).widget()
-                if isinstance(widget, QLabel):
-                    widget.setStyleSheet("padding: 5px; border-bottom: 1px solid #CCCCCC; color: #000000;")
+        self.tab_widget.setStyleSheet(f"""
+            QTabWidget::pane {{ border: 1px solid {theme['border_color']}; }}
+            QTabBar::tab {{ background-color: {theme['tab_bg']}; color: {theme['tab_text']}; padding: 8px 12px; }}
+            QTabBar::tab:selected {{ background-color: {theme['tab_selected_bg']}; color: {theme['text_color']}; }}
+        """)
+        
+        self.home_box_score.setStyleSheet(f"QTableWidget {{ background-color: {theme['bg_color']}; color: {theme['text_color']}; }}")
+        self.away_box_score.setStyleSheet(f"QTableWidget {{ background-color: {theme['bg_color']}; color: {theme['text_color']}; }}")
+        self.back_button.setStyleSheet(f"QPushButton {{ background-color: {theme['tab_bg']}; color: {theme['text_color']}; }}")
+        
+        # Update feed labels
+        for i in range(self.feed_layout.count()):
+            widget = self.feed_layout.itemAt(i).widget()
+            if isinstance(widget, QLabel):
+                widget.setStyleSheet(f"padding: 5px; border-bottom: 1px solid {theme['border_color']}; color: {theme['text_color']};")
+
+# MainWindow
+# This is the top-level container class for the entire application. It:
+
+# Creates the main UI layout with header and content area
+# Manages navigation between the main view (list of games) and detail views
+# Maintains a timer to update game data every 1 seconds
+# Contains collections of game cells and detail views
+# Handles the dark/light theme switching functionality
+# Organizes the UI with QStackedWidget for page switching
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -255,35 +425,60 @@ class MainWindow(QMainWindow):
         # Set up timer for auto-updates
         self.update_timer = QTimer(self)
         self.update_timer.timeout.connect(self.update_games)
-        self.update_timer.start(2000)  # Update every 30 seconds
+        self.update_timer.start(1000)  # Update every 30 seconds
         
         # Initial update
         self.update_games()
         
     def init_ui(self):
         self.setWindowTitle("NBA Desktop Widget")
-        self.setMinimumSize(400, 00)
+        self.setMinimumSize(400, 600)
         
         # Create central widget and main layout
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         self.main_layout = QVBoxLayout(self.central_widget)
         
-        # Create header with dark mode toggle
-        header_layout = QHBoxLayout()
-        title_label = QLabel("NBA Games")
-        title_label.setStyleSheet("font-size: 24px; font-weight: bold;")
+        # Create header with title and dark mode toggle
+        self.header_layout = QHBoxLayout()
         
+        # Create a stack for the left side of header (title or back button)
+        self.header_left_stack = QStackedWidget()
+        
+        # Title for main view
+        self.title_widget = QWidget()
+        title_layout = QHBoxLayout(self.title_widget)
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        self.title_label = QLabel("NBA Games")
+        self.title_label.setStyleSheet("font-size: 24px; font-weight: bold;")
+        title_layout.addWidget(self.title_label)
+        
+        # Back button for detail view
+        self.back_widget = QWidget()
+        back_layout = QHBoxLayout(self.back_widget)
+        back_layout.setContentsMargins(0, 0, 0, 0)
+        self.back_button = QPushButton("← Back")
+        self.back_button.setFixedWidth(80)
+        self.back_button.clicked.connect(self.show_main_view)
+        back_layout.addWidget(self.back_button)
+        
+        # Add both to stack
+        self.header_left_stack.addWidget(self.title_widget)
+        self.header_left_stack.addWidget(self.back_widget)
+        self.header_left_stack.setCurrentWidget(self.title_widget)
+        
+        # Dark mode toggle remains the same
         self.dark_mode_toggle = DarkModeToggle(self)
         self.dark_mode_toggle.theme_changed.connect(self.apply_theme)
         
-        header_layout.addWidget(title_label)
-        header_layout.addStretch()
-        header_layout.addWidget(self.dark_mode_toggle)
+        # Add to header layout
+        self.header_layout.addWidget(self.header_left_stack)
+        self.header_layout.addStretch()
+        self.header_layout.addWidget(self.dark_mode_toggle)
         
-        self.main_layout.addLayout(header_layout)
+        self.main_layout.addLayout(self.header_layout)
         
-        # Create stacked widget for main view and detail views
+        # Create stacked widget for main content views
         self.stacked_widget = QStackedWidget()
         
         # Create main view with grid layout
@@ -307,90 +502,126 @@ class MainWindow(QMainWindow):
         
     def update_games(self):
         try:
+            # Fetch games list
             games = fetch_games_list()
             
-            # Clear existing grid
-            while self.grid_layout.count():
-                child = self.grid_layout.takeAt(0)
-                if child.widget():
-                    child.widget().deleteLater()
+            # Get current game IDs for comparison
+            current_game_ids = [game.game_id for game in games]
             
-            # Create new game cells
+            # Remove widgets from grid first
+            self._clear_grid_layout()
+            
+            # Add or update game cells
             for i, game in enumerate(games):
-                row = i // 2
-                col = i % 2
+                row, col = i // 2, i % 2
                 
                 if game.game_id not in self.game_cells:
-                    game_cell = GameCell(game)
-                    game_cell.clicked_signal.connect(self.cell_clicked)
-                    self.game_cells[game.game_id] = game_cell
-                    
-                    # Create detail view
-                    detail_view = GameDetailView(game)
-                    detail_view.back_signal.connect(self.show_main_view)
-                    self.game_detail_views[game.game_id] = detail_view
-                    self.stacked_widget.addWidget(detail_view)
-                    
-                self.grid_layout.addWidget(self.game_cells[game.game_id], row, col)
+                    # Create new game cell and detail view
+                    self._create_game_widgets(game)
                 
-                # Apply theme
-                self.game_cells[game.game_id].apply_theme(self.is_dark_mode)
-                self.game_detail_views[game.game_id].apply_theme(self.is_dark_mode)
+                # Add to layout and update
+                cell = self.game_cells[game.game_id]
+                self.grid_layout.addWidget(cell, row, col)
                 
-                # Update game status
-                try:
-                    game_update = fetch_live_game_updates(game.game_id)
-                    self.game_cells[game.game_id].update_game_status(game_update)
-                    self.game_detail_views[game.game_id].update_game_status(game_update)
-                except Exception as e:
-                    print(f"Error updating game {game.game_id}: {e}")
-                    self.game_cells[game.game_id].update_game_status(None)
-                    
+                # Apply theme and update state
+                self._update_game_cell(game.game_id)
+            
+            # Clean up cells that are no longer needed
+            self._remove_stale_games(current_game_ids)
+                
         except Exception as e:
-            print(f"Error fetching games: {e}")
+            print(f"Error in update_games: {e}")
+    
+    def _clear_grid_layout(self):
+        """Remove all widgets from grid layout without deleting them"""
+        for i in reversed(range(self.grid_layout.count())):
+            widget_item = self.grid_layout.itemAt(i)
+            if widget_item and widget_item.widget():
+                self.grid_layout.removeWidget(widget_item.widget())
+    
+    def _create_game_widgets(self, game):
+        """Create new game cell and detail view for a game"""
+        # Create cell
+        game_cell = GameCell(game)
+        game_cell.clicked_signal.connect(self.cell_clicked)
+        self.game_cells[game.game_id] = game_cell
+        
+        # Create detail view
+        detail_view = GameDetailView(game)
+        detail_view.back_signal.connect(self.show_main_view)
+        self.game_detail_views[game.game_id] = detail_view
+        self.stacked_widget.addWidget(detail_view)
+    
+    def _update_game_cell(self, game_id):
+        """Apply theme and update game status for a cell"""
+        if game_id not in self.game_cells:
+            return
+            
+        cell = self.game_cells[game_id]
+        detail_view = self.game_detail_views.get(game_id)
+        
+        # Apply theme
+        cell.apply_theme(self.is_dark_mode)
+        if detail_view:
+            detail_view.apply_theme(self.is_dark_mode)
+        
+        # Update game status
+        try:
+            game_update = fetch_live_game_updates(game_id)
+            if game_update:
+                cell.update_game_status(game_update)
+                if detail_view:
+                    detail_view.update_game_status(game_update)
+            else:
+                cell.update_game_status(None)
+        except Exception as e:
+            print(f"Error updating game {game_id}: {e}")
+            cell.update_game_status(None)
+    
+    def _remove_stale_games(self, current_game_ids):
+        """Remove games that are no longer in the current list"""
+        for game_id in list(self.game_cells.keys()):
+            if game_id not in current_game_ids:
+                if game_id in self.game_detail_views:
+                    detail_view = self.game_detail_views.pop(game_id)
+                    self.stacked_widget.removeWidget(detail_view)
+                    detail_view.deleteLater()
+                
+                # Only delete cell if it's not on screen
+                if self.stacked_widget.currentWidget() == self.main_view:
+                    cell = self.game_cells.pop(game_id)
+                    cell.deleteLater()
         
     def cell_clicked(self, game_id):
         # Show detail view for selected game
         detail_view = self.game_detail_views.get(game_id)
         if detail_view:
             self.stacked_widget.setCurrentWidget(detail_view)
-            
-            # Update game status
-            try:
-                game_update = fetch_live_game_updates(game_id)
-                detail_view.update_game_status(game_update)
-            except Exception as e:
-                print(f"Error updating game detail {game_id}: {e}")
+            # Switch header to back button
+            self.header_left_stack.setCurrentWidget(self.back_widget)
+            self._update_game_cell(game_id)
     
     def show_main_view(self):
         self.stacked_widget.setCurrentWidget(self.main_view)
+        # Switch header back to title
+        self.header_left_stack.setCurrentWidget(self.title_widget)
     
     def apply_theme(self, is_dark_mode):
         self.is_dark_mode = is_dark_mode
+        theme = DARK_THEME if is_dark_mode else LIGHT_THEME
         
-        # Apply theme to all game cells
-        for game_id, cell in self.game_cells.items():
-            cell.apply_theme(is_dark_mode)
+        # Apply theme to all game cells and detail views
+        for game_id in self.game_cells:
+            self._update_game_cell(game_id)
             
-        # Apply theme to all detail views
-        for game_id, view in self.game_detail_views.items():
-            view.apply_theme(is_dark_mode)
-            
-        # Apply theme to main window
-        if is_dark_mode:
-            self.setStyleSheet("""
-                QMainWindow { background-color: #1E1E1E; }
-                QScrollArea { background-color: #1E1E1E; border: none; }
-                QWidget { background-color: #1E1E1E; color: #FFFFFF; }
-                QLabel { color: #FFFFFF; }
-            """)
-        else:
-            self.setStyleSheet("""
-                QMainWindow { background-color: #F5F5F5; }
-                QScrollArea { background-color: #F5F5F5; border: none; }
-                QWidget { background-color: #F5F5F5; color: #000000; }
-                QLabel { color: #000000; }
-            """)
+        # Apply theme to main window and header elements
+        self.setStyleSheet(f"""
+            QMainWindow {{ background-color: {theme['main_bg']}; }}
+            QScrollArea {{ background-color: {theme['main_bg']}; border: none; }}
+            QWidget {{ background-color: {theme['main_bg']}; color: {theme['text_color']}; }}
+            QLabel {{ color: {theme['text_color']}; }}
+        """)
+        
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
