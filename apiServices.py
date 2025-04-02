@@ -26,8 +26,8 @@ class GameUpdate:
     status: str
     period: int
     clock: str
-    home_score: int
-    away_score: int
+    home_score: str
+    away_score: str
     home_players: List[PlayerStats]
     away_players: List[PlayerStats]
     best_home_player: str
@@ -60,74 +60,77 @@ def fetch_games_list() -> List[Game]:
 
     return list_of_games
 
-
 def fetch_live_game_updates(game_id: str) -> GameUpdate:
 
-    box = boxscore.BoxScore(game_id)
-    game_data = box.game.get_dict()
-    game_status = game_data['gameStatusText']
+    try:
+        box = boxscore.BoxScore(game_id)
+        game_data = box.game.get_dict()
+        game_status = game_data['gameStatusText']
 
-    # Get the clock and period
-    period = game_data['period']
-    raw_clock = game_data['gameClock'] # Returns something like PT00M19.50S
-    match_time = re.search(r'PT(\d+)M(\d+\.\d+)S', raw_clock) # Outputs something like PT08M47.00S. We want 8:47
-    minutes = match_time.group(1)
-    seconds = match_time.group(2).split('.')[0]  # Remove decimal part
-    clock = f"{minutes}:{seconds}"  # In the form 00:00
+        # Get the clock and period
+        period = game_data['period']
+        raw_clock = game_data['gameClock'] # Returns something like PT00M19.50S
+        match_time = re.search(r'PT(\d+)M(\d+\.\d+)S', raw_clock) # Outputs something like PT08M47.00S. We want 8:47
+        minutes = match_time.group(1)
+        seconds = match_time.group(2).split('.')[0]  # Remove decimal part
+        clock = f"{minutes}:{seconds}"  # In the form 00:00
 
-    home_score = game_data['homeTeam']['score']
-    away_score = game_data['awayTeam']['score']
+        home_score = game_data['homeTeam']['score']
+        away_score = game_data['awayTeam']['score']
 
-    home_players = game_data['homeTeam']['players']
-    away_players = game_data['awayTeam']['players']
+        home_players = game_data['homeTeam']['players']
+        away_players = game_data['awayTeam']['players']
 
-    def fetch_player_stats(players: List[Dict]) -> List[PlayerStats]:
-        player_stats = []
-        for player in players:
-            player_name = player['name']
-            player_minutes_played_raw = player['statistics']['minutesCalculated'] #Returns something like PT33M
-            player_minutes_played = int(''.join(c for c in player_minutes_played_raw if c.isdigit())) #Returns only the numbers
-            player_points = player['statistics']['points']
-            player_rebounds = player['statistics']['reboundsTotal']
-            player_assists = player['statistics']['assists']
-            player_stats.append(PlayerStats(player_name, player_minutes_played, player_points, player_rebounds, player_assists))
-        return player_stats
-    
-    home_player_stats = fetch_player_stats(home_players)
-    away_player_stats = fetch_player_stats(away_players)
+        def fetch_player_stats(players: List[Dict]) -> List[PlayerStats]:
+            player_stats = []
+            for player in players:
+                player_name = player['name']
+                player_minutes_played_raw = player['statistics']['minutesCalculated'] #Returns something like PT33M
+                player_minutes_played = int(''.join(c for c in player_minutes_played_raw if c.isdigit())) #Returns only the numbers
+                player_points = player['statistics']['points']
+                player_rebounds = player['statistics']['reboundsTotal']
+                player_assists = player['statistics']['assists']
+                player_stats.append(PlayerStats(player_name, player_minutes_played, player_points, player_rebounds, player_assists))
+            return player_stats
+        
+        home_player_stats = fetch_player_stats(home_players)
+        away_player_stats = fetch_player_stats(away_players)
 
-    def best_player(players: List[Dict]) -> str:
-        best = max(players, key=lambda x: x['statistics']['points'] + 2 * x['statistics']['reboundsTotal'] + 3* x['statistics']['assists'])
-        return f"{best['name']}: {best['statistics']['points']} PTS, {best['statistics']['reboundsTotal']} REB, {best['statistics']['assists']} AST"
-    
-    best_home_player = best_player(home_players)
-    best_away_player = best_player(away_players)
-    best_overall_player = best_player(home_players+away_players)
+        def best_player(players: List[Dict]) -> str:
+            best = max(players, key=lambda x: x['statistics']['points'] + 2 * x['statistics']['reboundsTotal'] + 3* x['statistics']['assists'])
+            return f"{best['name'].split()[-1]}: {best['statistics']['points']} PTS, {best['statistics']['reboundsTotal']} REB, {best['statistics']['assists']} AST"
+        
+        best_home_player = best_player(home_players)
+        best_away_player = best_player(away_players)
+        best_overall_player = best_player(home_players+away_players)
 
-    pbp = playbyplay.PlayByPlay(game_id)
-    plays = pbp.get_dict()['game']['actions']
-    recent_plays = []
+        pbp = playbyplay.PlayByPlay(game_id)
+        plays = pbp.get_dict()['game']['actions']
+        recent_plays = []
 
-    if plays:
-        sorted_plays = sorted(plays, key=lambda x: x.get('actionNumber', 0), reverse=True)
+        if plays:
+            sorted_plays = sorted(plays, key=lambda x: x.get('actionNumber', 0), reverse=True)
 
-        for play in sorted_plays[:5]:
-            match_time = re.search(r'PT(\d+)M(\d+\.\d+)S', play['clock'])
-            if match_time:
-                minutes = match_time.group(1)
-                seconds = match_time.group(2).split('.')[0]
-                time_str = f"{minutes}:{seconds}"
+            for play in sorted_plays[:5]:
+                match_time = re.search(r'PT(\d+)M(\d+\.\d+)S', play['clock'])
+                if match_time:
+                    minutes = match_time.group(1)
+                    seconds = match_time.group(2).split('.')[0]
+                    time_str = f"{minutes}:{seconds}"
 
-            play_period = play.get('period', 0)
-            period_str = f"Q{play_period}" if play_period <= 4 else f"OT{play_period - 4}"
+                play_period = play.get('period', 0)
+                period_str = f"Q{play_period}" if play_period <= 4 else f"OT{play_period - 4}"
 
-            play_description = play.get('description', 'Unknown action')
-            play_text = f"{period_str} {time_str} | {play_description}"
-            recent_plays.append(play_text)
+                play_description = play.get('description', 'Unknown action')
+                play_text = f"{period_str} {time_str} | {play_description}"
+                recent_plays.append(play_text)
 
-    recent_plays.reverse()
+        recent_plays.reverse()
 
-    return GameUpdate(game_status, period, clock, home_score, away_score, home_player_stats, away_player_stats, best_home_player, best_away_player, best_overall_player, recent_plays)
+        return GameUpdate(game_status, period, clock, home_score, away_score, home_player_stats, away_player_stats, best_home_player, best_away_player, best_overall_player, recent_plays)
 
-# print(fetch_games_list())
-# print(fetch_live_game_updates('0022401073'))
+    except: return GameUpdate("Not Started", 0, "--", "-", "-", "", "", "", "", "", "")
+
+print(fetch_games_list())
+print(fetch_live_game_updates('0022401101'))
+
