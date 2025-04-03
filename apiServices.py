@@ -97,7 +97,7 @@ def fetch_live_game_updates(game_id: str) -> GameUpdate:
         away_player_stats = fetch_player_stats(away_players)
 
         def best_player(players: List[Dict]) -> str:
-            best = max(players, key=lambda x: x['statistics']['points'] + 2 * x['statistics']['reboundsTotal'] + 3* x['statistics']['assists'])
+            best = max(players, key=lambda x: x['statistics']['points'] + 1.5 * x['statistics']['reboundsTotal'] + 2 * x['statistics']['assists'])
             return f"{best['name'].split()[-1]}: {best['statistics']['points']} PTS, {best['statistics']['reboundsTotal']} REB, {best['statistics']['assists']} AST"
         
         best_home_player = best_player(home_players)
