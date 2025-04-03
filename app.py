@@ -447,7 +447,7 @@ class MainWindow(QMainWindow):
         # Create a stack for the left side of header (title or back button)
         self.header_left_stack = QStackedWidget()
         
-        # Title for main view
+        # Title for main view - keep original positioning
         self.title_widget = QWidget()
         title_layout = QHBoxLayout(self.title_widget)
         title_layout.setContentsMargins(0, 0, 0, 0)
@@ -455,14 +455,16 @@ class MainWindow(QMainWindow):
         self.title_label.setStyleSheet("font-size: 24px; font-weight: bold;")
         title_layout.addWidget(self.title_label)
         
-        # Back button for detail view
+        # Back button for detail view - aligned far left
         self.back_widget = QWidget()
         back_layout = QHBoxLayout(self.back_widget)
+        # Remove all margins to align with window edge
         back_layout.setContentsMargins(0, 0, 0, 0)
         self.back_button = QPushButton("← Back")
         self.back_button.setFixedWidth(80)
         self.back_button.clicked.connect(self.show_main_view)
         back_layout.addWidget(self.back_button)
+        back_layout.addStretch()  # Push everything to the left
         
         # Add both to stack
         self.header_left_stack.addWidget(self.title_widget)
@@ -474,14 +476,17 @@ class MainWindow(QMainWindow):
         self.dark_mode_toggle.theme_changed.connect(self.apply_theme)
         
         # Add to header layout
-        self.header_layout.addWidget(self.header_left_stack)
-        self.header_layout.addStretch()
+        self.header_layout.addWidget(self.header_left_stack, 1)
         self.header_layout.addWidget(self.dark_mode_toggle)
         
+        # Adjust main layout to position back button at edge
+        original_margins = self.main_layout.contentsMargins()
         self.main_layout.addLayout(self.header_layout)
         
         # Create stacked widget for main content views
         self.stacked_widget = QStackedWidget()
+        
+        # Rest of the code remains the same...
         
         # Create main view with grid layout
         self.main_view = QWidget()
