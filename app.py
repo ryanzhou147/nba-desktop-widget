@@ -431,7 +431,19 @@ class MainWindow(QMainWindow):
         
         # Initial update
         self.update_games()
-        
+        QTimer.singleShot(100, self.fix_layout_with_navigation)
+
+    def fix_layout_with_navigation(self):
+        # Get the first game ID if any exist
+        games = fetch_games_list()
+        if games:
+            # Simulate clicking the first game
+            first_game_id = games[0].game_id
+            self.cell_clicked(first_game_id)
+            
+            # Then go back to main view after a very short delay
+            QTimer.singleShot(50, self.show_main_view)
+            
     def init_ui(self):
         self.setWindowTitle("NBA Desktop Widget")
         self.setMinimumSize(400, 600)
@@ -539,6 +551,7 @@ class MainWindow(QMainWindow):
             
             # Clean up cells that are no longer needed
             self._remove_stale_games(current_game_ids)
+            
                 
         except Exception as e:
             print(f"Error in update_games: {e}")
@@ -556,7 +569,12 @@ class MainWindow(QMainWindow):
         game_cell = GameCell(game)
         game_cell.clicked_signal.connect(self.cell_clicked)
         self.game_cells[game.game_id] = game_cell
-    
+        
+        # Create detail view
+        # detail_view = GameDetailView(game)
+        # detail_view.back_signal.connect(self.show_main_view)
+        # self.game_detail_views[game.game_id] = detail_view
+        # self.stacked_widget.addWidget(detail_view)
     
     def _update_game_cell(self, game_id):
         """Apply theme and update game status for a cell"""
