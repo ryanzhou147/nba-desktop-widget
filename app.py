@@ -556,12 +556,7 @@ class MainWindow(QMainWindow):
         game_cell = GameCell(game)
         game_cell.clicked_signal.connect(self.cell_clicked)
         self.game_cells[game.game_id] = game_cell
-        
-        # Create detail view
-        detail_view = GameDetailView(game)
-        detail_view.back_signal.connect(self.show_main_view)
-        self.game_detail_views[game.game_id] = detail_view
-        self.stacked_widget.addWidget(detail_view)
+    
     
     def _update_game_cell(self, game_id):
         """Apply theme and update game status for a cell"""
@@ -604,7 +599,20 @@ class MainWindow(QMainWindow):
                     cell.deleteLater()
         
     def cell_clicked(self, game_id):
-        # Show detail view for selected game
+        # Create detail view only when needed
+        if game_id not in self.game_detail_views:
+            # Find the game object
+            for game in fetch_games_list():
+                if game.game_id == game_id:
+                    # Create the detail view
+                    detail_view = GameDetailView(game)
+                    detail_view.back_signal.connect(self.show_main_view)
+                    detail_view.apply_theme(self.is_dark_mode)
+                    self.game_detail_views[game_id] = detail_view
+                    self.stacked_widget.addWidget(detail_view)
+                    break
+        
+        # Show the detail view
         detail_view = self.game_detail_views.get(game_id)
         if detail_view:
             self.stacked_widget.setCurrentWidget(detail_view)
