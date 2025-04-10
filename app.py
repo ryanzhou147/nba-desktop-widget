@@ -4,9 +4,11 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QGridLayout, QLabel, QPushButton, 
                              QTabWidget, QScrollArea, QTableWidget, QTableWidgetItem,
                              QHeaderView, QSizePolicy, QFrame, QStackedWidget)
-from PyQt5.QtGui import QPixmap, QColor, QPalette, QFont
+from PyQt5.QtGui import QPixmap, QPixmapCache
 from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QEvent
 from apiServices import fetch_games_list, fetch_live_game_updates, Game, GameUpdate
+
+_logo_cache = {}
 
 # Theme constants
 LIGHT_THEME = {
@@ -37,7 +39,6 @@ DARK_THEME = {
 # Handles theme switching between dark and light modes
 # Emits signals when the theme changes
 # Toggles its text between "Dark Mode" and "Light Mode"
-
 
 class DarkModeToggle(QPushButton):
     theme_changed = pyqtSignal(bool)
@@ -145,13 +146,20 @@ class GameCell(QWidget, ThemedWidget):
         layout = QHBoxLayout()
         
         logo = QLabel()
-        logo_path = f"nba-logos/{team_name}.png"
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path).scaled(40, 40, Qt.KeepAspectRatio)
-            logo.setPixmap(pixmap)
-        else:
-            logo.setText(team_name)
         logo.setFixedSize(40, 40)
+        
+        # Try to get logo from cache first
+        if team_name in _logo_cache:
+            logo.setPixmap(_logo_cache[team_name])
+        else:
+            logo_path = f"nba-logos/{team_name}.png"
+            if os.path.exists(logo_path):
+                pixmap = QPixmap(logo_path).scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                # Store in cache for future use
+                _logo_cache[team_name] = pixmap
+                logo.setPixmap(pixmap)
+            else:
+                logo.setText(team_name)
         
         score = QLabel("--")
         score.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -267,13 +275,21 @@ class GameDetailView(QWidget, ThemedWidget):
         layout = QHBoxLayout()
         
         logo = QLabel()
-        logo_path = f"nba-logos/{team_name}.png"
-        if os.path.exists(logo_path):
-            pixmap = QPixmap(logo_path).scaled(60, 60, Qt.KeepAspectRatio)
-            logo.setPixmap(pixmap)
-        else:
-            logo.setText(team_name)
         logo.setFixedSize(60, 60)
+        
+        # Try to get logo from cache first (at a different size)
+        cache_key = f"{team_name}_large"
+        if cache_key in _logo_cache:
+            logo.setPixmap(_logo_cache[cache_key])
+        else:
+            logo_path = f"nba-logos/{team_name}.png"
+            if os.path.exists(logo_path):
+                pixmap = QPixmap(logo_path).scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                # Store in cache for future use
+                _logo_cache[cache_key] = pixmap
+                logo.setPixmap(pixmap)
+            else:
+                logo.setText(team_name)
         
         name = QLabel(team_name)
         score = QLabel("--")

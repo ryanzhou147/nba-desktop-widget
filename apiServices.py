@@ -153,7 +153,7 @@ def fetch_games_list():
         return _games_list_cache
     
     # Fetch fresh data
-    games = _fetch_games_list_fresh()  # This is your original function
+    games = _fetch_games_list_fresh() 
     
     # Update cache
     _games_list_cache = games
@@ -184,7 +184,7 @@ def fetch_live_game_updates(game_id):
             return game_update
     
     # Fetch fresh data
-    game_update = _fetch_live_game_updates_fresh(game_id)  # This is your original function
+    game_update = _fetch_live_game_updates_fresh(game_id) 
     
     # Update cache
     _game_updates_cache[game_id] = game_update
