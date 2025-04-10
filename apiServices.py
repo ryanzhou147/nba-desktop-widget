@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
+from datetime import timezone
 from dateutil import parser
 from nba_api.live.nba.endpoints import scoreboard, boxscore, playbyplay
 from nba_api.stats.static import players
-import re
+import re, time
 from dataclasses import dataclass
 from typing import List, Dict
 
@@ -35,7 +35,7 @@ class GameUpdate:
     best_overall_player: str
     recent_plays: List[str]
 
-def fetch_games_list() -> List[Game]:
+def _fetch_games_list_fresh() -> List[Game]:
     board = scoreboard.ScoreBoard()
     games = board.games.get_dict()
 
@@ -60,7 +60,7 @@ def fetch_games_list() -> List[Game]:
 
     return list_of_games
 
-def fetch_live_game_updates(game_id: str) -> GameUpdate:
+def _fetch_live_game_updates_fresh(game_id: str) -> GameUpdate:
 
     try:
         box = boxscore.BoxScore(game_id)
@@ -131,6 +131,65 @@ def fetch_live_game_updates(game_id: str) -> GameUpdate:
 
     except: return GameUpdate("Not Started", 0, "--", "-", "-", "", "", "", "", "", "")
 
-print(fetch_games_list())
-print(fetch_live_game_updates('0022401101'))
+# Cache data structures
+_games_list_cache = None
+_games_list_timestamp = 0
+_game_updates_cache = {}
+_game_updates_timestamp = {}
+
+# Cache timeout settings
+GAMES_LIST_CACHE_TIMEOUT = 600  # 10 minutes for games list
+LIVE_GAME_CACHE_TIMEOUT = 5    # 5 seconds for live games
+FINAL_GAME_CACHE_TIMEOUT = 300  # 5 minutes for finished games
+FUTURE_GAME_CACHE_TIMEOUT = 60  # 1 minute for upcoming games
+
+# Original fetch_games_list function with caching
+def fetch_games_list():
+    global _games_list_cache, _games_list_timestamp
+    current_time = time.time()
+    
+    # Check if cache is valid
+    if _games_list_cache is not None and current_time - _games_list_timestamp < GAMES_LIST_CACHE_TIMEOUT:
+        return _games_list_cache
+    
+    # Fetch fresh data
+    games = _fetch_games_list_fresh()  # This is your original function
+    
+    # Update cache
+    _games_list_cache = games
+    _games_list_timestamp = current_time
+    
+    return games
+
+# Original fetch_live_game_updates with caching
+def fetch_live_game_updates(game_id):
+    global _game_updates_cache, _game_updates_timestamp
+    current_time = time.time()
+    
+    # Check if cache exists for this game
+    if game_id in _game_updates_cache and game_id in _game_updates_timestamp:
+        game_update = _game_updates_cache[game_id]
+        last_update_time = _game_updates_timestamp[game_id]
+        
+        # Determine appropriate cache timeout based on game state
+        if game_update and "Final" in game_update.status:
+            cache_timeout = FINAL_GAME_CACHE_TIMEOUT
+        elif game_update and ("PM" in game_update.status or "AM" in game_update.status):
+            cache_timeout = FUTURE_GAME_CACHE_TIMEOUT
+        else:
+            cache_timeout = LIVE_GAME_CACHE_TIMEOUT
+        
+        # Return cached data if still valid
+        if current_time - last_update_time < cache_timeout:
+            return game_update
+    
+    # Fetch fresh data
+    game_update = _fetch_live_game_updates_fresh(game_id)  # This is your original function
+    
+    # Update cache
+    _game_updates_cache[game_id] = game_update
+    _game_updates_timestamp[game_id] = current_time
+    
+    return game_update
+
 
