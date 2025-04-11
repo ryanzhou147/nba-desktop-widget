@@ -91,6 +91,7 @@ def _fetch_live_game_updates_fresh(game_id: str) -> GameUpdate:
                 player_rebounds = player['statistics']['reboundsTotal']
                 player_assists = player['statistics']['assists']
                 player_stats.append(PlayerStats(player_name, player_minutes_played, player_points, player_rebounds, player_assists))
+            player_stats = sorted(player_stats, key=lambda player:player.minutes_played, reverse=True) # Sort by minutes played in descending order
             return player_stats
         
         home_player_stats = fetch_player_stats(home_players)
