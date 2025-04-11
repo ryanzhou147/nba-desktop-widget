@@ -462,7 +462,7 @@ class MainWindow(QMainWindow):
             
     def init_ui(self):
         self.setWindowTitle("NBA Desktop Widget")
-        self.setMinimumSize(400, 600)
+        self.setMinimumSize(450, 600)
         
         # Create central widget and main layout
         self.central_widget = QWidget()
