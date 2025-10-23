@@ -1,7 +1,6 @@
 from datetime import timezone
 from dateutil import parser
 from nba_api.live.nba.endpoints import scoreboard, boxscore, playbyplay
-from nba_api.stats.static import players
 import re, time
 from dataclasses import dataclass
 from typing import List, Dict
