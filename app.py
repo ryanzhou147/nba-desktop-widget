@@ -9,7 +9,9 @@ from PyQt5.QtGui import QPixmap, QPixmapCache
 from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QEvent
 from api_services import fetch_games_list, fetch_live_game_updates, Game, GameUpdate
 
-# No in-memory caching: logos are loaded from disk on demand
+# In-memory caches populated at startup by _preload_logos
+_logo_cache = {}
+_logo_lookup = {}
 
 
 def _generate_logo_candidates(team_name: str):
@@ -65,10 +67,13 @@ def _find_logo_file(team_name: str):
 
     Looks in the local `nba-logos/` folder and tries several filename patterns.
     """
-    # Attempt to find a matching image file on disk using multiple
-    # normalized candidate stems.
+    # Check in-memory lookup first (populated by _preload_logos)
     candidates = _generate_logo_candidates(team_name)
+    for stem in candidates:
+        if stem in _logo_lookup:
+            return _logo_lookup[stem]
 
+    # Fallback: attempt to find a matching image file on disk using candidates
     logos_dir = os.path.join(os.path.dirname(__file__), "nba-logos")
     if not os.path.isdir(logos_dir):
         logos_dir = "nba-logos"
@@ -77,19 +82,66 @@ def _find_logo_file(team_name: str):
         for variant in (f"{stem}.png", f"{stem}.PNG", f"{stem}.jpg", f"{stem}.jpeg"):
             path = os.path.join(logos_dir, variant)
             if os.path.exists(path):
-                return path
+                return os.path.abspath(path)
 
-    # Raw team name fallback
     raw_path = os.path.join(logos_dir, f"{team_name}.png")
     if os.path.exists(raw_path):
-        return raw_path
+        return os.path.abspath(raw_path)
 
     return None
 
 
-def _preload_logos(*args, **kwargs):
-    # Preload removed: logos are loaded from disk on demand.
-    return
+def _preload_logos(sizes=(40, 60)):
+    """Scan `nba-logos/`, populate `_logo_lookup` (stem -> abs path) and
+    preload scaled QPixmaps into `_logo_cache` for the provided sizes.
+    """
+    logos_dir = os.path.join(os.path.dirname(__file__), "nba-logos")
+    if not os.path.isdir(logos_dir):
+        logos_dir = "nba-logos"
+
+    try:
+        files = os.listdir(logos_dir)
+    except Exception:
+        return
+
+    # Build lookup mapping from file stems to absolute path
+    for fname in files:
+        lower = fname.lower()
+        if not (lower.endswith('.png') or lower.endswith('.jpg') or lower.endswith('.jpeg')):
+            continue
+
+        stem = os.path.splitext(fname)[0]
+        path = os.path.join(logos_dir, fname)
+        abs_path = os.path.abspath(path)
+
+        candidates = _generate_logo_candidates(stem)
+        for c in candidates:
+            if c not in _logo_lookup:
+                _logo_lookup[c] = abs_path
+
+    # Try to preload pixmaps for requested sizes if PyQt is available
+    try:
+        from PyQt5.QtGui import QPixmap
+        from PyQt5.QtCore import Qt
+        qt_available = True
+    except Exception:
+        qt_available = False
+
+    if not qt_available:
+        return
+
+    for abs_path in set(_logo_lookup.values()):
+        for size in sizes:
+            cache_key = f"{abs_path}::{size}"
+            if cache_key in _logo_cache:
+                continue
+            try:
+                pix = QPixmap(abs_path)
+                if not pix.isNull():
+                    scaled = pix.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                    _logo_cache[cache_key] = scaled
+            except Exception:
+                continue
 
 
 def _load_logo_pixmap(team_name: str, size: int):
@@ -107,10 +159,19 @@ def _load_logo_pixmap(team_name: str, size: int):
     if not logo_file:
         return None
 
-    pixmap = QPixmap(logo_file)
-    if pixmap and not pixmap.isNull():
-        scaled = pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        return scaled
+    abs_path = os.path.abspath(logo_file)
+    cache_key = f"{abs_path}::{size}"
+    if cache_key in _logo_cache:
+        return _logo_cache[cache_key]
+
+    try:
+        pixmap = QPixmap(abs_path)
+        if pixmap and not pixmap.isNull():
+            scaled = pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            _logo_cache[cache_key] = scaled
+            return scaled
+    except Exception:
+        return None
 
     return None
 
@@ -555,7 +616,7 @@ class MainWindow(QMainWindow):
             
     def init_ui(self):
         self.setWindowTitle("NBA Desktop Widget")
-        self.setMinimumSize(350, 600)
+        self.setMinimumSize(450, 600)
         
         # Create central widget and main layout
         self.central_widget = QWidget()
