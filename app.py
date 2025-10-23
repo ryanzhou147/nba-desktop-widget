@@ -1,14 +1,118 @@
 import sys
 import os
+import re
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                              QHBoxLayout, QGridLayout, QLabel, QPushButton, 
                              QTabWidget, QScrollArea, QTableWidget, QTableWidgetItem,
                              QHeaderView, QSizePolicy, QFrame, QStackedWidget)
 from PyQt5.QtGui import QPixmap, QPixmapCache
 from PyQt5.QtCore import Qt, QTimer, QSize, pyqtSignal, QEvent
-from apiServices import fetch_games_list, fetch_live_game_updates, Game, GameUpdate
+from api_services import fetch_games_list, fetch_live_game_updates, Game, GameUpdate
 
-_logo_cache = {}
+# No in-memory caching: logos are loaded from disk on demand
+
+
+def _generate_logo_candidates(team_name: str):
+    """Return a list of candidate filename stems for a team name.
+
+    Examples:
+      "Milwaukee Bucks" -> ["milwaukee bucks", "bucks", "milwaukee", "milwaukeebucks"]
+      "Trail Blazers" -> ["trail blazers", "blazers", "trail", "trailblazers"]
+    """
+    if not team_name:
+        return []
+
+    name = team_name.lower().strip()
+    # Remove punctuation except spaces and digits/letters
+    normalized = re.sub(r"[^a-z0-9 ]+", "", name)
+
+    parts = [p for p in re.split(r"\s+", normalized) if p]
+    candidates = []
+
+    # full normalized name
+    if normalized:
+        candidates.append(normalized)
+
+    # last word (e.g., 'bucks')
+    if parts:
+        candidates.append(parts[-1])
+
+    # last two words (e.g., 'trail blazers')
+    if len(parts) >= 2:
+        candidates.append(" ".join(parts[-2:]))
+
+    # first word (sometimes logos use city or nickname alone)
+    if parts:
+        candidates.append(parts[0])
+
+    # concatenated variants
+    candidates.append("".join(parts))
+    candidates.append("_".join(parts))
+    candidates.append("-".join(parts))
+
+    # Deduplicate while preserving order
+    seen = set()
+    dedup = []
+    for c in candidates:
+        if c and c not in seen:
+            dedup.append(c)
+            seen.add(c)
+    return dedup
+
+
+def _find_logo_file(team_name: str):
+    """Return an existing logo file path for team_name or None.
+
+    Looks in the local `nba-logos/` folder and tries several filename patterns.
+    """
+    # Attempt to find a matching image file on disk using multiple
+    # normalized candidate stems.
+    candidates = _generate_logo_candidates(team_name)
+
+    logos_dir = os.path.join(os.path.dirname(__file__), "nba-logos")
+    if not os.path.isdir(logos_dir):
+        logos_dir = "nba-logos"
+
+    for stem in candidates:
+        for variant in (f"{stem}.png", f"{stem}.PNG", f"{stem}.jpg", f"{stem}.jpeg"):
+            path = os.path.join(logos_dir, variant)
+            if os.path.exists(path):
+                return path
+
+    # Raw team name fallback
+    raw_path = os.path.join(logos_dir, f"{team_name}.png")
+    if os.path.exists(raw_path):
+        return raw_path
+
+    return None
+
+
+def _preload_logos(*args, **kwargs):
+    # Preload removed: logos are loaded from disk on demand.
+    return
+
+
+def _load_logo_pixmap(team_name: str, size: int):
+    """Load and return a scaled QPixmap for team_name, or None if not found.
+
+    Uses an internal cache keyed by absolute path + size to avoid repeated loads.
+    """
+    try:
+        from PyQt5.QtGui import QPixmap
+        from PyQt5.QtCore import Qt
+    except Exception:
+        return None
+
+    logo_file = _find_logo_file(team_name)
+    if not logo_file:
+        return None
+
+    pixmap = QPixmap(logo_file)
+    if pixmap and not pixmap.isNull():
+        scaled = pixmap.scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        return scaled
+
+    return None
 
 # Theme constants
 LIGHT_THEME = {
@@ -148,18 +252,12 @@ class GameCell(QWidget, ThemedWidget):
         logo = QLabel()
         logo.setFixedSize(40, 40)
         
-        # Try to get logo from cache first
-        if team_name in _logo_cache:
-            logo.setPixmap(_logo_cache[team_name])
+        # Load logo from disk on demand
+        pixmap = _load_logo_pixmap(team_name, 40)
+        if pixmap:
+            logo.setPixmap(pixmap)
         else:
-            logo_path = f"nba-logos/{team_name}.png"
-            if os.path.exists(logo_path):
-                pixmap = QPixmap(logo_path).scaled(40, 40, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                # Store in cache for future use
-                _logo_cache[team_name] = pixmap
-                logo.setPixmap(pixmap)
-            else:
-                logo.setText(team_name)
+            logo.setText(team_name)
         
         score = QLabel("--")
         score.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -277,19 +375,12 @@ class GameDetailView(QWidget, ThemedWidget):
         logo = QLabel()
         logo.setFixedSize(60, 60)
         
-        # Try to get logo from cache first (at a different size)
-        cache_key = f"{team_name}_large"
-        if cache_key in _logo_cache:
-            logo.setPixmap(_logo_cache[cache_key])
+        # Load logo from disk on demand
+        pixmap = _load_logo_pixmap(team_name, 60)
+        if pixmap:
+            logo.setPixmap(pixmap)
         else:
-            logo_path = f"nba-logos/{team_name}.png"
-            if os.path.exists(logo_path):
-                pixmap = QPixmap(logo_path).scaled(60, 60, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-                # Store in cache for future use
-                _logo_cache[cache_key] = pixmap
-                logo.setPixmap(pixmap)
-            else:
-                logo.setText(team_name)
+            logo.setText(team_name)
         
         name = QLabel(team_name)
         score = QLabel("--")
@@ -435,6 +526,8 @@ class GameDetailView(QWidget, ThemedWidget):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+        # Preload available logos into memory for fast access
+        _preload_logos()
         self.game_cells = {}
         self.game_detail_views = {}
         self.is_dark_mode = False
